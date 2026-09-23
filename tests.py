@@ -1,72 +1,101 @@
 from main import Participant, Analyzer, create_session
-
-from sample_data import (
-    participant_data,
-    resting_data,
-    moderate_data,
-    high_activity_data,
-    recovery_data,
-    invalid_data
-)
+from option_a_fitness.data_generator import generate_fitness_data
 
 
-# Create the participant used in all test scenarios
-participant = Participant(
-    participant_data["name"],
-    participant_data["resting_heart_rate"],
-    participant_data["reference_temperature"],
-    participant_data["reference_skin_response"]
-)
+def analyze_scenario(scenario):
+    """Generates and analyzes one fitness scenario."""
+
+    # Generate reproducible test data from the instructor-supplied generator
+    profile, observations_data = generate_fitness_data(
+        participant_id="P001",
+        scenario=scenario,
+        seed=42,
+        number_of_windows=12
+    )
+
+    # Convert the generated participant profile into our Participant object
+    participant = Participant(
+        profile["participant_id"],
+        profile["baseline_heart_rate"],
+        profile["baseline_temperature"],
+        profile["baseline_skin_response"]
+    )
+
+    # Convert the observation dictionaries into Observation objects
+    # and place them inside a Session
+    session = create_session(participant, observations_data)
+
+    # Analyze the complete session and return the result dictionary
+    analyzer = Analyzer(session)
+    return analyzer.analyze()
 
 
-# Test 1: Resting session
-resting_session = create_session(participant, resting_data)
-resting_result = Analyzer(resting_session).analyze()
+def test_resting():
+    """Tests that resting data is classified correctly."""
 
-assert resting_result["classification"] == "resting"
-assert resting_result["usable_observations"] == 3
+    result = analyze_scenario("resting")
 
-print("Resting session test passed.")
+    # All observations should be usable in the normal resting scenario
+    assert result["classification"] == "resting"
+    assert result["usable_observations"] == 12
 
-
-# Test 2: Moderate activity
-moderate_session = create_session(participant, moderate_data)
-moderate_result = Analyzer(moderate_session).analyze()
-
-assert moderate_result["classification"] == "moderate activity"
-assert moderate_result["usable_observations"] == 3
-
-print("Moderate activity test passed.")
+    print("Resting session test passed.")
 
 
-# Test 3: High activity
-high_session = create_session(participant, high_activity_data)
-high_result = Analyzer(high_session).analyze()
+def test_moderate_activity():
+    """Tests that moderate activity data is classified correctly."""
 
-assert high_result["classification"] == "high activity"
-assert high_result["usable_observations"] == 3
+    result = analyze_scenario("moderate_activity")
 
-print("High activity test passed.")
+    # The generated scenario should be recognized as moderate activity
+    assert result["classification"] == "moderate activity"
+    assert result["usable_observations"] == 12
 
-
-# Test 4: Activity followed by recovery
-recovery_session = create_session(participant, recovery_data)
-recovery_result = Analyzer(recovery_session).analyze()
-
-assert recovery_result["classification"] == "recovering"
-assert recovery_result["usable_observations"] == 4
-
-print("Recovery test passed.")
+    print("Moderate activity test passed.")
 
 
-# Test 5: Poor-quality and invalid sensor data
-invalid_session = create_session(participant, invalid_data)
-invalid_result = Analyzer(invalid_session).analyze()
+def test_high_activity():
+    """Tests that high activity data is classified correctly."""
 
-assert invalid_result["classification"] == "insufficient data"
-assert invalid_result["usable_observations"] == 0
+    result = analyze_scenario("high_activity")
 
-print("Invalid data test passed.")
+    # The generated scenario should be recognized as high activity
+    assert result["classification"] == "high activity"
+    assert result["usable_observations"] == 12
+
+    print("High activity test passed.")
 
 
-print("\nAll tests passed.")
+def test_recovery():
+    """Tests that a recovery trend is detected correctly."""
+
+    result = analyze_scenario("recovery")
+
+    # Heart rate and activity should decline toward resting values
+    assert result["classification"] == "recovering"
+    assert result["usable_observations"] == 12
+
+    print("Recovery test passed.")
+
+
+def test_poor_quality():
+    """Tests handling of missing, impossible, and poor-quality data."""
+
+    result = analyze_scenario("poor_quality")
+
+    # The supplied poor-quality scenario contains unusable sensor values
+    assert result["classification"] == "insufficient data"
+    assert result["usable_observations"] == 0
+
+    print("Poor-quality data test passed.")
+
+
+if __name__ == "__main__":
+    # Run all five required scenario tests
+    test_resting()
+    test_moderate_activity()
+    test_high_activity()
+    test_recovery()
+    test_poor_quality()
+
+    print("\nAll tests passed.")

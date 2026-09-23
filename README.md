@@ -9,7 +9,7 @@
 
 This project implements Option A: Smart Fitness Session Analyzer.
 
-The program analyzes simulated fitness sensor data. It validates observations, excludes unusable measurements, calculates summaries, compares session values with a participant's reference values, and classifies the session as:
+The program uses the instructor-supplied fitness data generator to create simulated participant profiles and sensor observations. The generated dictionaries are converted into custom Python objects, validated, analyzed, and classified as:
 
 - resting
 - moderate activity
@@ -17,38 +17,44 @@ The program analyzes simulated fitness sensor data. It validates observations, e
 - recovering
 - insufficient data
 
-The result is returned as a dictionary and displayed as a readable console report.
+The analysis is returned as a structured dictionary and displayed as a readable console report.
 
 ## Project structure
 
 ```text
 ACIT4420_Assignment1/
+├── option_a_fitness/
+│   ├── DATA_DESCRIPTION.md
+│   ├── data_generator.py
+│   └── example_usage.py
+├── .gitignore
 ├── README.md
 ├── main.py
-├── sample_data.py
-├── tests.py
-└── requirements.txt
+├── requirements.txt
+└── tests.py
 ```
 
-`main.py` contains the application logic, `sample_data.py` contains the sample scenarios, and `tests.py` tests the expected results.
+`main.py` contains the application logic.  
+`tests.py` tests the five documented scenarios.  
+`option_a_fitness` contains the instructor-supplied starter files. `data_generator.py` has not been modified.
 
 ## Class design
 
 ### Participant
 
-Represents the participant and stores the name, resting heart rate, reference temperature, and reference skin response.
+Stores the participant ID and personal reference values for heart rate, temperature, and skin response.
 
 ### Observation
 
-Represents one sensor observation containing timestamp, heart rate, skin response, temperature, activity level, and signal quality. It also checks whether the observation is usable.
+Represents one sensor observation containing timestamp, heart rate, skin response, temperature, activity level, and signal quality. It also validates whether the observation is usable.
 
 ### Session
 
-Represents one fitness session and contains a participant and a list of observations.
+Contains a `Participant` object and a list of `Observation` objects.
 
 ### Analyzer
 
-Analyzes the usable observations, calculates summaries, compares values with reference measurements, detects recovery, classifies the session, and returns the result as a dictionary.
+Analyzes usable observations, calculates summaries, compares measurements with reference values, detects recovery, classifies the session, and returns the result as a dictionary.
 
 ## Object-oriented design
 
@@ -62,48 +68,58 @@ The participant's resting heart rate is stored in the protected-style attribute 
 
 ### Inheritance
 
-Inheritance and method overriding are not used. The classes represent separate responsibilities rather than specialized versions of the same type. Composition therefore gives a clearer design for this application.
+Inheritance and method overriding are not used because the classes represent separate responsibilities rather than specialized versions of the same type. Composition gives a clearer design for this application.
 
 ### Static methods
 
-`Observation` uses the static methods `is_valid_heart_rate()` and `is_valid_ratio()` because these checks do not depend on a specific observation object.
+`Observation` uses `is_valid_heart_rate()` and `is_valid_ratio()` as static methods because these checks do not depend on a specific object.
 
-## Validation and assumptions
+## Data and validation
 
-The assignment does not provide exact numerical limits, so the following values are project assumptions.
+The program imports the instructor-supplied generator:
+
+```python
+from option_a_fitness.data_generator import generate_fitness_data
+```
+
+It uses the five documented scenarios:
+
+- `resting`
+- `moderate_activity`
+- `high_activity`
+- `recovery`
+- `poor_quality`
+
+A fixed seed of `42` is used so the example data and tests are reproducible.
 
 An observation is usable when:
 
 - timestamp is zero or greater
-- heart rate is between 30 and 220 bpm
+- heart rate is between 35 and 205 bpm
 - skin response is zero or greater
-- temperature is between 20 and 45
+- temperature is between 25 and 42 degrees Celsius
 - activity level is between 0 and 1
 - signal quality is between 0 and 1 and at least 0.5
 
-The sample data includes missing, impossible, and poor-quality values such as `None`, heart rates of `300` and `-10`, and signal quality of `0.20`.
+The ranges follow the supplied data description. The minimum signal quality of `0.5` is a project assumption.
 
-## Classification rules
+The poor-quality scenario contains missing, impossible, or low-quality values that are rejected by the validation logic.
 
-At least three usable observations are required for a normal classification.
+## Analysis and classification
+
+For usable observations, the program calculates average, minimum, and maximum values for heart rate, activity level, temperature, and skin response.
+
+Average heart rate, temperature, and skin response are also compared with the participant's reference values.
+
+Classification rules:
 
 - **Insufficient data:** fewer than three usable observations.
 - **Resting:** average activity is below `0.25` and average heart rate is no more than `20 bpm` above resting heart rate.
 - **High activity:** average activity is at least `0.70` or average heart rate is at least `60 bpm` above resting heart rate.
 - **Moderate activity:** the session does not meet the other activity conditions.
-- **Recovering:** heart rate and activity both decrease across the final three usable observations after clear activity. Recovery detection requires at least four usable observations.
+- **Recovering:** the first three and final three usable observations are compared. Heart rate and activity must show a clear decline toward resting values.
 
-The program also compares average heart rate, temperature, and skin response with the participant's reference values.
-
-## Sample scenarios
-
-The project includes five scenarios:
-
-1. Resting session
-2. Moderate activity
-3. High activity
-4. Activity followed by recovery
-5. Missing, poor-quality, or invalid sensor data
+Recovery detection requires at least six usable observations. The exact classification thresholds are project assumptions.
 
 ## Running the program
 
@@ -146,7 +162,7 @@ Resting session test passed.
 Moderate activity test passed.
 High activity test passed.
 Recovery test passed.
-Invalid data test passed.
+Poor-quality data test passed.
 
 All tests passed.
 ```
@@ -156,29 +172,21 @@ All tests passed.
 ```text
 FITNESS SESSION REPORT
 ----------------------
-Participant: Alex
-Usable observations: 4/4
+Participant: P001
+Usable observations: 12/12
 Classification: recovering
-Explanation: Heart rate and activity declined near the end after a period of clear activity.
+Explanation: Heart rate and activity declined from higher activity toward resting values.
 
 Heart rate:
-  Average: 123.75 bpm
-  Minimum: 95 bpm
-  Maximum: 150 bpm
-
-Activity level:
-  Average: 0.60
-
-Temperature:
-  Average: 33.67
-
-Skin response:
-  Average: 2.93
+  Average: 112.83 bpm
+  Minimum: 86 bpm
+  Maximum: 141 bpm
 ```
 
 ## Known limitations
 
-- The program uses simulated sensor data.
-- Validation limits and classification thresholds are project assumptions.
-- Recovery detection only examines the final three usable observations.
+- The program uses simulated sensor data from the supplied generator.
+- Validation and classification depend on defined numerical thresholds.
+- Recovery detection compares the beginning and end of the session rather than the complete trend.
+- The example scenarios use a fixed seed for reproducibility.
 - The application does not use external APIs, databases, graphical interfaces, or machine-learning models.

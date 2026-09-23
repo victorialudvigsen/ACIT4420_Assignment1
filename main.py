@@ -1,18 +1,12 @@
-from sample_data import (
-    participant_data,
-    resting_data,
-    moderate_data,
-    high_activity_data,
-    recovery_data,
-    invalid_data
-)
+from option_a_fitness.data_generator import generate_fitness_data
+
 
 class Participant:
     """Represents a participant and their normal reference measurements."""
 
-    def __init__(self, name, resting_heart_rate, reference_temperature,
-                 reference_skin_response):
-        self.name = name
+    def __init__(self, participant_id, resting_heart_rate,
+                 reference_temperature, reference_skin_response):
+        self.participant_id = participant_id
 
         # Protected attribute controlled through a property
         self.resting_heart_rate = resting_heart_rate
@@ -46,8 +40,8 @@ class Observation:
 
     @staticmethod
     def is_valid_heart_rate(value):
-        # Project assumption: heart rate must be between 30 and 220 bpm
-        return value is not None and 30 <= value <= 220
+        # Expected range from the supplied data description
+        return value is not None and 35 <= value <= 205
 
     @staticmethod
     def is_valid_ratio(value):
@@ -66,7 +60,8 @@ class Observation:
         if self.skin_response is None or self.skin_response < 0:
             return False
 
-        if self.temperature is None or not 20 <= self.temperature <= 45:
+        # Expected temperature range from the supplied data description
+        if self.temperature is None or not 25 <= self.temperature <= 42:
             return False
 
         if not self.is_valid_ratio(self.activity_level):
@@ -75,7 +70,7 @@ class Observation:
         if not self.is_valid_ratio(self.signal_quality):
             return False
 
-        # Very poor signal quality is not considered usable
+        # Project assumption: signal quality below 0.5 is too poor to use
         if self.signal_quality < 0.5:
             return False
 
@@ -186,30 +181,65 @@ class Analyzer:
         }
 
     def is_recovering(self):
+        """Checks for a clear decline from activity toward resting values."""
+
         usable_observations = self.session.get_usable_observations()
 
-        # At least four observations are needed to identify a recovery trend
-        if len(usable_observations) < 4:
+        # The supplied generator always creates at least six observations
+        if len(usable_observations) < 6:
             return False
 
-        third_last = usable_observations[len(usable_observations) - 3]
-        second_last = usable_observations[len(usable_observations) - 2]
-        last = usable_observations[len(usable_observations) - 1]
+        first_heart_rates = []
+        last_heart_rates = []
+        first_activity_levels = []
+        last_activity_levels = []
 
-        heart_rate_declining = (
-            third_last.heart_rate > second_last.heart_rate
-            and second_last.heart_rate > last.heart_rate
+        # Use the first three observations as the beginning of the session
+        for index in range(3):
+            observation = usable_observations[index]
+            first_heart_rates.append(observation.heart_rate)
+            first_activity_levels.append(observation.activity_level)
+
+        # Use the last three observations as the end of the session
+        for index in range(
+            len(usable_observations) - 3,
+            len(usable_observations)
+        ):
+            observation = usable_observations[index]
+            last_heart_rates.append(observation.heart_rate)
+            last_activity_levels.append(observation.activity_level)
+
+        first_heart_rate_average = calculate_average(first_heart_rates)
+        last_heart_rate_average = calculate_average(last_heart_rates)
+
+        first_activity_average = calculate_average(first_activity_levels)
+        last_activity_average = calculate_average(last_activity_levels)
+
+        resting_heart_rate = self.session.participant.resting_heart_rate
+
+        # Recovery should show a clear decline from the start to the end
+        heart_rate_declined = (
+            first_heart_rate_average >= last_heart_rate_average + 15
         )
 
-        activity_declining = (
-            third_last.activity_level > second_last.activity_level
-            and second_last.activity_level > last.activity_level
+        activity_declined = (
+            first_activity_average >= last_activity_average + 0.20
         )
 
-        # Recovery should follow a period of clear activity
-        was_active = third_last.activity_level >= 0.70
+        # The session should begin with noticeable activity
+        started_active = first_activity_average >= 0.55
 
-        return heart_rate_declining and activity_declining and was_active
+        # Heart rate should move back toward the participant's baseline
+        ended_near_resting = (
+            last_heart_rate_average <= resting_heart_rate + 30
+        )
+
+        return (
+            heart_rate_declined
+            and activity_declined
+            and started_active
+            and ended_near_resting
+        )
 
     def classify_session(self):
         usable_observations = self.session.get_usable_observations()
@@ -229,11 +259,17 @@ class Analyzer:
 
         resting_heart_rate = self.session.participant.resting_heart_rate
 
-        # Classification rules used in this project
-        if average_activity < 0.25 and average_heart_rate <= resting_heart_rate + 20:
+        # Classification thresholds are project assumptions
+        if (
+            average_activity < 0.25
+            and average_heart_rate <= resting_heart_rate + 20
+        ):
             return "resting"
 
-        elif average_activity >= 0.70 or average_heart_rate >= resting_heart_rate + 60:
+        elif (
+            average_activity >= 0.70
+            or average_heart_rate >= resting_heart_rate + 60
+        ):
             return "high activity"
 
         else:
@@ -246,16 +282,24 @@ class Analyzer:
             return "There are fewer than three usable observations."
 
         elif classification == "recovering":
-            return "Heart rate and activity declined near the end after a period of clear activity."
+            return (
+                "Heart rate and activity declined from higher activity "
+                "toward resting values."
+            )
 
         elif classification == "resting":
-            return "Average heart rate and activity level are close to resting values."
+            return (
+                "Average heart rate and activity level are close "
+                "to resting values."
+            )
 
         elif classification == "high activity":
             return "Heart rate or activity level is clearly elevated."
 
         else:
-            return "Heart rate and activity level indicate moderate activity."
+            return (
+                "Heart rate and activity level indicate moderate activity."
+            )
 
     def analyze(self):
         """Returns the complete analysis as a structured dictionary."""
@@ -263,7 +307,7 @@ class Analyzer:
         usable_observations = self.session.get_usable_observations()
 
         return {
-            "participant": self.session.participant.name,
+            "participant": self.session.participant.participant_id,
             "total_observations": len(self.session.observations),
             "usable_observations": len(usable_observations),
             "classification": self.classify_session(),
@@ -329,6 +373,7 @@ def create_summary(values):
         "maximum": calculate_maximum(values)
     }
 
+
 def print_report(result):
     """Prints a readable fitness session report."""
 
@@ -336,7 +381,10 @@ def print_report(result):
     print("----------------------")
 
     print(f"Participant: {result['participant']}")
-    print(f"Usable observations: {result['usable_observations']}/{result['total_observations']}")
+    print(
+        f"Usable observations: "
+        f"{result['usable_observations']}/{result['total_observations']}"
+    )
     print(f"Classification: {result['classification']}")
     print(f"Explanation: {result['explanation']}")
 
@@ -349,19 +397,34 @@ def print_report(result):
 
         print("\nActivity level:")
         print(f"  Average: {result['activity_level']['average']:.2f}")
+        print(f"  Minimum: {result['activity_level']['minimum']:.2f}")
+        print(f"  Maximum: {result['activity_level']['maximum']:.2f}")
 
         print("\nTemperature:")
         print(f"  Average: {result['temperature']['average']:.2f}")
+        print(f"  Minimum: {result['temperature']['minimum']:.2f}")
+        print(f"  Maximum: {result['temperature']['maximum']:.2f}")
 
         print("\nSkin response:")
         print(f"  Average: {result['skin_response']['average']:.2f}")
+        print(f"  Minimum: {result['skin_response']['minimum']:.2f}")
+        print(f"  Maximum: {result['skin_response']['maximum']:.2f}")
 
         comparison = result["reference_comparison"]
 
         print("\nDifference from reference values:")
-        print(f"  Heart rate: {comparison['heart_rate_difference']:.2f} bpm")
-        print(f"  Temperature: {comparison['temperature_difference']:.2f}")
-        print(f"  Skin response: {comparison['skin_response_difference']:.2f}")
+        print(
+            f"  Heart rate: "
+            f"{comparison['heart_rate_difference']:.2f} bpm"
+        )
+        print(
+            f"  Temperature: "
+            f"{comparison['temperature_difference']:.2f}"
+        )
+        print(
+            f"  Skin response: "
+            f"{comparison['skin_response_difference']:.2f}"
+        )
 
     else:
         print("\nNo usable sensor measurements were available.")
@@ -390,31 +453,38 @@ def create_session(participant, observations_data):
 def run_scenarios():
     """Runs and reports the five required sample scenarios."""
 
-    # Create the participant from the sample data
-    participant = Participant(
-        participant_data["name"],
-        participant_data["resting_heart_rate"],
-        participant_data["reference_temperature"],
-        participant_data["reference_skin_response"]
-    )
-
-    # The five required scenarios
     scenarios = [
-        ("Resting session", resting_data),
-        ("Moderate activity", moderate_data),
-        ("High activity", high_activity_data),
-        ("Activity followed by recovery", recovery_data),
-        ("Poor-quality or invalid data", invalid_data)
+        ("Resting session", "resting"),
+        ("Moderate activity", "moderate_activity"),
+        ("High activity", "high_activity"),
+        ("Activity followed by recovery", "recovery"),
+        ("Poor-quality or invalid data", "poor_quality")
     ]
 
-    # Analyze and report each scenario
-    for scenario_name, scenario_data in scenarios:
+    for scenario_name, scenario_type in scenarios:
+        # Use the instructor-supplied generator for all scenario data
+        profile, observations_data = generate_fitness_data(
+            participant_id="P001",
+            scenario=scenario_type,
+            seed=42,
+            number_of_windows=12
+        )
+
+        # Convert the generated participant dictionary into our own object
+        participant = Participant(
+            profile["participant_id"],
+            profile["baseline_heart_rate"],
+            profile["baseline_temperature"],
+            profile["baseline_skin_response"]
+        )
+
         print("\n")
         print("=" * 50)
         print(scenario_name.upper())
         print("=" * 50)
 
-        session = create_session(participant, scenario_data)
+        # Convert the generated observations into our own objects and analyze them
+        session = create_session(participant, observations_data)
         analyzer = Analyzer(session)
         result = analyzer.analyze()
 
